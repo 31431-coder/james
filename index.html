@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: sans-serif; padding: 10px; }
+      .container { display: flex; flex-direction: column; gap: 10px; }
+      #preview { max-width: 100%; height: auto; border: 1px solid #ccc; display: none; }
+      .result-box { background: #f1f3f4; padding: 10px; border-radius: 4px; }
+      button { background: #1a73e8; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+      button:disabled { background: #ccc; }
+      .loading { color: #666; font-size: 0.9em; display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h3>上傳圖片計算色溫</h3>
+      <input type="file" id="fileInput" accept="image/*">
+      
+      <div class="loading" id="msg">正在分析像素...</div>
+      
+      <canvas id="canvas" style="display:none;"></canvas>
+      <img id="preview" />
+      
+      <div id="resultArea" style="display:none;">
+        <div class="result-box">
+          <strong>平均色溫:</strong> <span id="cctVal" style="font-size: 1.2em; color: #d93025;">-</span> K<br>
+          <span style="font-size:0.8em; color:#555;">平均 RGB: <span id="rgbVal">-</span></span>
+        </div>
+        <br>
+        <button id="pasteBtn" onclick="sendToSheet()">填入試算表</button>
+      </div>
+    </div>
+
+    <script>
+      let currentCCT = 0;
+      let currentRGB = {r:0, g:0, b:0};
+
+      document.getElementById('fileInput').addEventListener('change', function(e) {
+        var file = e.target.files[0];
+        if (!file) return;
+
+        var reader = new FileReader();
+        var img = new Image();
+        var canvas = document.getElementById('canvas');
+        var ctx = canvas.getContext('2d');
+        var msg = document.getElementById('msg');
+        
+        msg.style.display = 'block';
+        document.getElementById('resultArea').style.display = 'none';
+
+        reader.onload = function(event) {
+          img.onload = function() {
+            // 縮放圖片以加快計算速度 (限制最大邊長 800px)
+            var scale = Math.min(1, 800 / Math.max(img.width, img.height));
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+            
+            // 繪製圖片到 Canvas
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            
+            // 顯示預覽
+            var preview = document.getElementById('preview');
+            preview.src = canvas.toDataURL();
+            preview.style.display = 'block';
+
+            // 計算平均顏色
+            calculateAverageColor(ctx, canvas.width, canvas.height);
+          }
+          img.src = event.target.result;
+        }
+        reader.readAsDataURL(file);
+      });
+
+      function calculateAverageColor(ctx, width, height) {
+        var imageData = ctx.getImageData(0, 0, width, height);
+        var data = imageData.data;
+        var r = 0, g = 0, b = 0;
+        var count = 0;
+
+        // 遍歷所有像素 (每40個取樣一次以提升效能)
+        for (var i = 0; i < data.length; i += 40) {
+          r += data[i];
+          g += data[i+1];
+          b += data[i+2];
+          count++;
+        }
+
+        r = Math.round(r / count);
+        g = Math.round(g / count);
+        b = Math.round(b / count);
+
+        currentRGB = {r:r, g:g, b:b};
+        
+        // 呼叫色溫計算函數
+        currentCCT = calculateCCT(r, g, b);
+        
+        // 顯示結果
+        document.getElementById('cctVal').innerText = Math.round(currentCCT);
+        document.getElementById('rgbVal').innerText = `${r}, ${g}, ${b}`;
+        document.getElementById('resultArea').style.display = 'block';
+        document.getElementById('msg').style.display = 'none';
+      }
+
+      function sendToSheet() {
+        var btn = document.getElementById('pasteBtn');
+        btn.disabled = true;
+        btn.innerText = "寫入中...";
+        
+        google.script.run
+          .withSuccessHandler(function() {
+            btn.disabled = false;
+            btn.innerText = "填入試算表";
+          })
+          .pasteToSheet(currentCCT, currentRGB.r, currentRGB.g, currentRGB.b);
+      }
+
+      // McCamy CCT 算法
+      function calculateCCT(r, g, b) {
+        var r_norm = r / 255.0;
+        var g_norm = g / 255.0;
+        var b_norm = b / 255.0;
+
+        function inverseSrgb(c) {
+          return (c <= 0.04045) ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        }
+
+        var r_lin = inverseSrgb(r_norm);
+        var g_lin = inverseSrgb(g_norm);
+        var b_lin = inverseSrgb(b_norm);
+
+        var X = 0.4124564 * r_lin + 0.3575761 * g_lin + 0.1804375 * b_lin;
+        var Y = 0.2126729 * r_lin + 0.7151522 * g_lin + 0.0721750 * b_lin;
+        var Z = 0.0193339 * r_lin + 0.1191920 * g_lin + 0.9503041 * b_lin;
+
+        if ((X + Y + Z) === 0) return 0;
+
+        var x = X / (X + Y + Z);
+        var y = Y / (X + Y + Z);
+
+        var n = (x - 0.3320) / (0.1858 - y);
+        var cct = 449.0 * Math.pow(n, 3) + 3525.0 * Math.pow(n, 2) + 6823.3 * n + 5520.33;
+        
+        return cct;
+      }
+    </script>
+  </body>
+</html>
