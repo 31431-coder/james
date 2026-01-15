@@ -1,21 +1,37 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <base target="_top">
+    <meta charset="UTF-8">
+    <title>圖片色溫計算器</title>
     <style>
-      body { font-family: sans-serif; padding: 10px; }
-      .container { display: flex; flex-direction: column; gap: 10px; }
-      #preview { max-width: 100%; height: auto; border: 1px solid #ccc; display: none; }
-      .result-box { background: #f1f3f4; padding: 10px; border-radius: 4px; }
-      button { background: #1a73e8; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
-      button:disabled { background: #ccc; }
-      .loading { color: #666; font-size: 0.9em; display: none; }
+      body { font-family: "Microsoft JhengHei", sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; }
+      .container { display: flex; flex-direction: column; gap: 15px; }
+      h3 { margin-bottom: 5px; color: #333; }
+      
+      /* 上傳區塊美化 */
+      .upload-area { border: 2px dashed #ccc; padding: 20px; text-align: center; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+      .upload-area:hover { border-color: #1a73e8; background: #f8f9fa; }
+      
+      #preview { max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 4px; display: none; margin-top: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+      
+      .result-box { background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 5px solid #1a73e8; }
+      
+      button { 
+        background: #1a73e8; color: white; border: none; padding: 10px 20px; 
+        border-radius: 4px; cursor: pointer; font-size: 16px; transition: background 0.3s; 
+      }
+      button:hover { background: #1557b0; }
+      button:disabled { background: #ccc; cursor: not-allowed; }
+      
+      .loading { color: #666; font-style: italic; display: none; }
     </style>
   </head>
   <body>
     <div class="container">
-      <h3>上傳圖片計算色溫</h3>
-      <input type="file" id="fileInput" accept="image/*">
+      <h3>🎨 圖片色溫計算器 (Web版)</h3>
+      <p style="font-size: 0.9em; color: #666;">上傳圖片，自動分析平均色溫 (Kelvin)</p>
+      
+      <input type="file" id="fileInput" accept="image/*" style="margin-bottom: 10px;">
       
       <div class="loading" id="msg">正在分析像素...</div>
       
@@ -24,11 +40,16 @@
       
       <div id="resultArea" style="display:none;">
         <div class="result-box">
-          <strong>平均色溫:</strong> <span id="cctVal" style="font-size: 1.2em; color: #d93025;">-</span> K<br>
-          <span style="font-size:0.8em; color:#555;">平均 RGB: <span id="rgbVal">-</span></span>
+          <div style="font-size: 0.9em; color: #555; margin-bottom: 5px;">平均色溫 (CCT)</div>
+          <div style="font-size: 2em; color: #d93025; font-weight: bold;">
+            <span id="cctVal">-</span> K
+          </div>
+          <div style="font-size:0.9em; color:#555; margin-top: 5px;">
+            RGB: <span id="rgbVal">-</span>
+          </div>
         </div>
         <br>
-        <button id="pasteBtn" onclick="sendToSheet()">填入試算表</button>
+        <button id="copyBtn" onclick="copyResult()">📋 複製結果</button>
       </div>
     </div>
 
@@ -51,8 +72,8 @@
 
         reader.onload = function(event) {
           img.onload = function() {
-            // 縮放圖片以加快計算速度 (限制最大邊長 800px)
-            var scale = Math.min(1, 800 / Math.max(img.width, img.height));
+            // 縮放圖片以加快計算速度 (限制最大邊長 1000px)
+            var scale = Math.min(1, 1000 / Math.max(img.width, img.height));
             canvas.width = img.width * scale;
             canvas.height = img.height * scale;
             
@@ -78,7 +99,7 @@
         var r = 0, g = 0, b = 0;
         var count = 0;
 
-        // 遍歷所有像素 (每40個取樣一次以提升效能)
+        // 遍歷所有像素 (取樣間隔 40)
         for (var i = 0; i < data.length; i += 40) {
           r += data[i];
           g += data[i+1];
@@ -100,22 +121,33 @@
         document.getElementById('rgbVal').innerText = `${r}, ${g}, ${b}`;
         document.getElementById('resultArea').style.display = 'block';
         document.getElementById('msg').style.display = 'none';
-      }
-
-      function sendToSheet() {
-        var btn = document.getElementById('pasteBtn');
-        btn.disabled = true;
-        btn.innerText = "寫入中...";
         
-        google.script.run
-          .withSuccessHandler(function() {
-            btn.disabled = false;
-            btn.innerText = "填入試算表";
-          })
-          .pasteToSheet(currentCCT, currentRGB.r, currentRGB.g, currentRGB.b);
+        // 重置按鈕狀態
+        var btn = document.getElementById('copyBtn');
+        btn.innerText = "📋 複製結果";
+        btn.style.background = "#1a73e8";
       }
 
-      // McCamy CCT 算法
+      // --- 新增：複製結果到剪貼簿的功能 (取代原本的 Google Sheet 寫入) ---
+      function copyResult() {
+        var btn = document.getElementById('copyBtn');
+        // 格式： 5500 K | RGB(255,200,100)
+        var textToCopy = `${Math.round(currentCCT)} K\tRGB(${currentRGB.r}, ${currentRGB.g}, ${currentRGB.b})`;
+        
+        navigator.clipboard.writeText(textToCopy).then(function() {
+          btn.innerText = "✅ 已複製！";
+          btn.style.background = "#0f9d58"; // 變綠色
+          
+          setTimeout(function() {
+            btn.innerText = "📋 複製結果";
+            btn.style.background = "#1a73e8";
+          }, 2000);
+        }).catch(function(err) {
+          alert("複製失敗，請手動選取文字複製");
+        });
+      }
+
+      // --- 色溫算法核心 ---
       function calculateCCT(r, g, b) {
         var r_norm = r / 255.0;
         var g_norm = g / 255.0;
